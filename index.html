@@ -336,7 +336,7 @@
       <div id="scoreCards"></div>
 
       <div class="card" id="matrixSummaryCard" style="overflow-x:auto;">
-        <h2>ตารางคะแนนหมากัด (Matrix รวมหมากัด+โอลิมปิก)</h2>
+        <h2>ตารางคะแนนหมากัด (Matrix รวมหมากัด+โอลิมปิก) — หลุมนี้</h2>
         <table class="matrix-tbl" id="matrixSummaryTable"></table>
       </div>
 
@@ -371,7 +371,7 @@
     players: [], // {id, name, team: 'A'|'B'|null}
     betValue: 20,
     moogudPts: { bogey:1, par:2, birdie:3, eagle:4, albatross:5, hio:10 },
-    matrixAdjust: {}, // pid -> manual "เพิ่ม" adjustment points
+    matrixAdjust: {}, // holeNum -> {pid -> manual "เพิ่ม" adjustment points} — แยกค่าต่อหลุม
     games: { moogud:true, olympic:true, farnear:false, team:false },
     currentHole: 1,
     holes: {} // holeNum -> {par, turbo, strokes:{pid:n}, farNearWinner, olyPts:{pid:n}}
@@ -601,7 +601,7 @@
       cardsBox.appendChild(div);
     });
 
-    renderMatrixSummary(computeStandings());
+    renderMatrixSummary();
   }
 
   document.getElementById('goSummaryBtn').addEventListener('click', ()=> goTo('summary'));
@@ -721,39 +721,38 @@
   // matrix[i][j] = net points player i has won from player j (anti-symmetric).
   // หมากัด is winner-take-all per hole, so it's split evenly across the other players
   // to express it pairwise; summed with โอลิมปิก's already-pairwise diffs.
-  function computeMatrix(){
+  // Pairwise net matrix (หมากัด + โอลิมปิก) for ONE hole only.
+  function computeMatrix(holeNum){
     const n = state.players.length;
     const matrix = Array.from({length:n}, ()=> new Array(n).fill(0));
     const idxOf = {}; state.players.forEach((p,i)=> idxOf[p.id]=i);
 
-    for(let h=1; h<=TOTAL_HOLES; h++){
-      const hole = state.holes[h];
-      if(!hole) continue;
-      const turboMult = hole.turbo ? 2 : 1;
+    const hole = state.holes[holeNum];
+    if(!hole) return matrix;
+    const turboMult = hole.turbo ? 2 : 1;
 
-      if(state.games.moogud && n>1){
-        const w = moogudWinnerOf(hole);
-        if(w){
-          const key = w.type==='hio' ? 'hio' : w.type==='alb' ? 'albatross' : w.type;
-          const amount = (state.moogudPts[key] || 0) * turboMult;
-          const wi = idxOf[w.winnerId];
-          state.players.forEach(p=>{
-            if(p.id===w.winnerId) return;
-            const qi = idxOf[p.id];
-            matrix[wi][qi] += amount;
-            matrix[qi][wi] -= amount;
-          });
-        }
+    if(state.games.moogud && n>1){
+      const w = moogudWinnerOf(hole);
+      if(w){
+        const key = w.type==='hio' ? 'hio' : w.type==='alb' ? 'albatross' : w.type;
+        const amount = (state.moogudPts[key] || 0) * turboMult;
+        const wi = idxOf[w.winnerId];
+        state.players.forEach(p=>{
+          if(p.id===w.winnerId) return;
+          const qi = idxOf[p.id];
+          matrix[wi][qi] += amount;
+          matrix[qi][wi] -= amount;
+        });
       }
+    }
 
-      if(state.games.olympic){
-        for(let i=0;i<state.players.length;i++){
-          for(let j=i+1;j<state.players.length;j++){
-            const pi = state.players[i], pj = state.players[j];
-            const diff = olyPairDiff(hole, pi, pj, turboMult);
-            matrix[i][j] += diff;
-            matrix[j][i] -= diff;
-          }
+    if(state.games.olympic){
+      for(let i=0;i<state.players.length;i++){
+        for(let j=i+1;j<state.players.length;j++){
+          const pi = state.players[i], pj = state.players[j];
+          const diff = olyPairDiff(hole, pi, pj, turboMult);
+          matrix[i][j] += diff;
+          matrix[j][i] -= diff;
         }
       }
     }
@@ -766,15 +765,20 @@
     return (r>0?'+':'') + (Number.isInteger(r) ? r : r.toFixed(1));
   }
 
-  function renderMatrixSummary(pts){
+  function renderMatrixSummary(){
     const table = document.getElementById('matrixSummaryTable');
     const players = state.players;
     if(players.length < 2){ table.innerHTML = ''; return; }
-    const matrix = computeMatrix();
+    const holeNum = state.currentHole;
+    const matrix = computeMatrix(holeNum);
+    if(!state.matrixAdjust[holeNum]) state.matrixAdjust[holeNum] = {};
+    const adj = state.matrixAdjust[holeNum];
 
     let html = '<tr><th class="corner"></th>';
     players.forEach(p=> html += `<th>${p.name}</th>`);
     html += '<th>ยอด</th></tr>';
+
+    const rowTotals = players.map((p,i)=> players.reduce((s,q,j)=> i===j? s : s+matrix[i][j], 0));
 
     players.forEach((p,i)=>{
       html += `<tr><td class="rowhead">${p.name}</td>`;
@@ -782,27 +786,26 @@
         if(i===j){ html += '<td class="diag"></td>'; }
         else { html += `<td>${fmtCell(matrix[i][j])}</td>`; }
       });
-      const rowTotal = pts[p.id].combined;
-      html += `<td class="rowtotal">${fmtCell(rowTotal)}</td></tr>`;
+      html += `<td class="rowtotal">${fmtCell(rowTotals[i])}</td></tr>`;
     });
 
-    // เพิ่ม row — editable manual adjustment per player
+    // เพิ่ม row — editable manual adjustment per player, แยกค่าต่อหลุม
     html += '<tr class="row-add"><td class="rowhead add-label">เพิ่ม</td>';
     players.forEach(p=>{
-      const val = state.matrixAdjust[p.id] || 0;
+      const val = adj[p.id] || 0;
       html += `<td><input type="number" class="adj-input" data-pid="${p.id}" value="${val}" step="1"></td>`;
     });
     html += '<td></td></tr>';
 
     // รวม row — sum of adjustments only (subtotal of เพิ่ม)
     html += '<tr class="row-sub"><td class="rowhead sub-label">รวม</td>';
-    players.forEach(p=> html += `<td>${fmtCell(state.matrixAdjust[p.id] || 0)}</td>`);
+    players.forEach(p=> html += `<td>${fmtCell(adj[p.id] || 0)}</td>`);
     html += '<td></td></tr>';
 
-    // ยอด row — grand total = matrix row total + adjustment
+    // ยอด row — grand total = matrix row total + adjustment (ของหลุมนี้)
     html += '<tr class="row-final"><td class="rowhead final-label">ยอด</td>';
-    players.forEach(p=>{
-      const grand = pts[p.id].combined + (state.matrixAdjust[p.id] || 0);
+    players.forEach((p,i)=>{
+      const grand = rowTotals[i] + (adj[p.id] || 0);
       html += `<td>${fmtCell(grand)}</td>`;
     });
     html += '<td></td></tr>';
@@ -811,8 +814,8 @@
 
     table.querySelectorAll('.adj-input').forEach(inp=>{
       inp.addEventListener('input', e=>{
-        state.matrixAdjust[e.target.dataset.pid] = parseFloat(e.target.value) || 0;
-        renderMatrixSummary(pts);
+        adj[e.target.dataset.pid] = parseFloat(e.target.value) || 0;
+        renderMatrixSummary();
       });
     });
   }
