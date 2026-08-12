@@ -220,23 +220,28 @@
   .empty-note{font-size:12.5px; color:#8a8266; text-align:center; padding:20px 10px;}
   .footer-note{text-align:center; font-size:11px; color:#8a8266; margin-top:20px;}
 
-  /* Matrix summary table (หมากัด+โอลิมปิก combined) */
-  table.matrix-tbl{border-collapse:collapse; font-family:'Space Mono',monospace; font-size:12px; min-width:100%;}
-  table.matrix-tbl th, table.matrix-tbl td{
-    border:1px solid var(--sand); padding:7px 9px; text-align:center; white-space:nowrap;
+  /* Matrix summary — expandable per-player list (no horizontal scroll, works at any player count) */
+  .plist{background:var(--paper); border:1px solid var(--line); border-radius:14px; overflow:hidden;}
+  .prow{border-bottom:1px solid var(--line);}
+  .prow:last-child{border-bottom:none;}
+  .prow-head{display:flex; align-items:center; gap:8px; padding:12px 14px; cursor:pointer;}
+  .prow-head .rank{width:18px; font-family:'Space Mono',monospace; font-size:11px; color:#9a9179; font-weight:700; flex:none;}
+  .prow-head .pname{flex:1; font-weight:700; font-size:14px;}
+  .prow-head .ptotal{font-family:'Space Mono',monospace; font-weight:700; font-size:16px;}
+  .prow-head .ptotal.pos{color:#1B6B3A;}
+  .prow-head .ptotal.neg{color:var(--flag);}
+  .prow-head .ptotal.zero{color:#7a7259;}
+  .prow-head .chev{font-size:11px; color:#9a9179; flex:none; transition:transform .15s ease;}
+  .prow.open .prow-head .chev{transform:rotate(180deg);}
+  .prow-detail{display:none; padding:0 14px 12px 40px;}
+  .prow.open .prow-detail{display:block;}
+  .vs-chip{
+    display:inline-flex; align-items:center; gap:5px; background:var(--sand); border-radius:8px; padding:4px 9px; margin:2px 4px 2px 0; font-size:12px;
   }
-  table.matrix-tbl th{background:var(--gold); color:#3a2f00; font-family:'Work Sans',sans-serif; font-weight:700; font-size:11.5px;}
-  table.matrix-tbl th.corner{background:var(--gold);}
-  table.matrix-tbl td.rowhead{background:var(--gold); color:#3a2f00; font-family:'Work Sans',sans-serif; font-weight:700; text-align:left;}
-  table.matrix-tbl td.diag{background:var(--fairway);}
-  table.matrix-tbl td.rowtotal{background:var(--sand-deep); font-weight:700;}
-  table.matrix-tbl tr.row-add td{background:#DCEFDD; font-weight:700;}
-  table.matrix-tbl tr.row-sub td{background:#C6E6C9; font-weight:700;}
-  table.matrix-tbl tr.row-final td{background:var(--turf); font-weight:700; color:var(--fairway);}
-  table.matrix-tbl td.rowhead.add-label, table.matrix-tbl td.rowhead.sub-label, table.matrix-tbl td.rowhead.final-label{background:transparent;}
-  table.matrix-tbl input.adj-input{
-    width:44px; border:none; background:transparent; font-family:'Space Mono',monospace; font-weight:700; text-align:center; font-size:12px;
-  }
+  .vs-chip b{font-family:'Space Mono',monospace;}
+  .vs-chip b.pos{color:#1B6B3A;}
+  .vs-chip b.neg{color:var(--flag);}
+  .vs-chip b.zero{color:#9a9179;}
 </style>
 </head>
 <body>
@@ -335,9 +340,9 @@
 
       <div id="scoreCards"></div>
 
-      <div class="card" id="matrixSummaryCard" style="overflow-x:auto;">
+      <div class="card" id="matrixSummaryCard">
         <h2>ตารางคะแนนหมากัด (Matrix รวมหมากัด+โอลิมปิก) — หลุมนี้</h2>
-        <table class="matrix-tbl" id="matrixSummaryTable"></table>
+        <div class="plist" id="matrixSummaryList"></div>
       </div>
 
       <button class="btn-secondary" id="goSummaryBtn">ดูสรุปคะแนน →</button>
@@ -371,7 +376,6 @@
     players: [], // {id, name, team: 'A'|'B'|null}
     betValue: 20,
     moogudPts: { bogey:1, par:2, birdie:3, eagle:4, albatross:5, hio:10 },
-    matrixAdjust: {}, // holeNum -> {pid -> manual "เพิ่ม" adjustment points} — แยกค่าต่อหลุม
     games: { moogud:true, olympic:true, farnear:false, team:false },
     currentHole: 1,
     holes: {} // holeNum -> {par, turbo, strokes:{pid:n}, farNearWinner, olyPts:{pid:n}}
@@ -764,58 +768,53 @@
     const r = Math.round(v*10)/10;
     return (r>0?'+':'') + (Number.isInteger(r) ? r : r.toFixed(1));
   }
+  function cellClass(v){
+    if(Math.abs(v) < 0.005) return 'zero';
+    return v>0 ? 'pos' : 'neg';
+  }
+
+  const matrixOpenIds = new Set(); // which player rows are expanded — persists across re-renders
 
   function renderMatrixSummary(){
-    const table = document.getElementById('matrixSummaryTable');
+    const box = document.getElementById('matrixSummaryList');
     const players = state.players;
-    if(players.length < 2){ table.innerHTML = ''; return; }
+    if(players.length < 2){ box.innerHTML = ''; return; }
     const holeNum = state.currentHole;
     const matrix = computeMatrix(holeNum);
-    if(!state.matrixAdjust[holeNum]) state.matrixAdjust[holeNum] = {};
-    const adj = state.matrixAdjust[holeNum];
-
-    let html = '<tr><th class="corner"></th>';
-    players.forEach(p=> html += `<th>${p.name}</th>`);
-    html += '<th>ยอด</th></tr>';
 
     const rowTotals = players.map((p,i)=> players.reduce((s,q,j)=> i===j? s : s+matrix[i][j], 0));
 
-    players.forEach((p,i)=>{
-      html += `<tr><td class="rowhead">${p.name}</td>`;
+    // sort by total (highest first) for ranking
+    const order = players.map((p,i)=>i).sort((a,b)=> rowTotals[b]-rowTotals[a]);
+
+    let html = '';
+    order.forEach((i, rank)=>{
+      const p = players[i];
+      const isOpen = matrixOpenIds.has(p.id);
+      html += `<div class="prow ${isOpen?'open':''}" data-pid="${p.id}">`;
+      html += `<div class="prow-head">
+          <div class="rank">${rank+1}</div>
+          <div class="pname">${p.name}</div>
+          <div class="ptotal ${cellClass(rowTotals[i])}">${fmtCell(rowTotals[i])}</div>
+          <div class="chev">▾</div>
+        </div>`;
+      html += `<div class="prow-detail">`;
       players.forEach((q,j)=>{
-        if(i===j){ html += '<td class="diag"></td>'; }
-        else { html += `<td>${fmtCell(matrix[i][j])}</td>`; }
+        if(j===i) return;
+        const v = matrix[i][j];
+        html += `<span class="vs-chip">${q.name} <b class="${cellClass(v)}">${fmtCell(v)}</b></span>`;
       });
-      html += `<td class="rowtotal">${fmtCell(rowTotals[i])}</td></tr>`;
+      html += `</div></div>`;
     });
 
-    // เพิ่ม row — editable manual adjustment per player, แยกค่าต่อหลุม
-    html += '<tr class="row-add"><td class="rowhead add-label">เพิ่ม</td>';
-    players.forEach(p=>{
-      const val = adj[p.id] || 0;
-      html += `<td><input type="number" class="adj-input" data-pid="${p.id}" value="${val}" step="1"></td>`;
-    });
-    html += '<td></td></tr>';
+    box.innerHTML = html;
 
-    // รวม row — sum of adjustments only (subtotal of เพิ่ม)
-    html += '<tr class="row-sub"><td class="rowhead sub-label">รวม</td>';
-    players.forEach(p=> html += `<td>${fmtCell(adj[p.id] || 0)}</td>`);
-    html += '<td></td></tr>';
-
-    // ยอด row — grand total = matrix row total + adjustment (ของหลุมนี้)
-    html += '<tr class="row-final"><td class="rowhead final-label">ยอด</td>';
-    players.forEach((p,i)=>{
-      const grand = rowTotals[i] + (adj[p.id] || 0);
-      html += `<td>${fmtCell(grand)}</td>`;
-    });
-    html += '<td></td></tr>';
-
-    table.innerHTML = html;
-
-    table.querySelectorAll('.adj-input').forEach(inp=>{
-      inp.addEventListener('input', e=>{
-        adj[e.target.dataset.pid] = parseFloat(e.target.value) || 0;
-        renderMatrixSummary();
+    box.querySelectorAll('.prow-head').forEach(head=>{
+      head.addEventListener('click', ()=>{
+        const row = head.parentElement;
+        const pid = row.dataset.pid;
+        if(matrixOpenIds.has(pid)){ matrixOpenIds.delete(pid); row.classList.remove('open'); }
+        else { matrixOpenIds.add(pid); row.classList.add('open'); }
       });
     });
   }
