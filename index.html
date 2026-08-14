@@ -154,6 +154,10 @@
     margin-top:10px;
   }
   .turbo-btn.active{background:var(--flag); color:#fff; border-style:solid;}
+  .turbo-row{display:flex; gap:8px;}
+  .turbo-row .turbo-btn{flex:1; margin-top:10px;}
+  .turbo-btn.solo{border-color:var(--gold); color:#8a6d00;}
+  .turbo-btn.solo.active{background:var(--gold); color:#3a2f00; border-style:solid;}
 
   .score-card{
     background:#fff; border:1px solid var(--line); border-radius:12px; padding:12px; margin-top:10px;
@@ -224,17 +228,14 @@
   .plist{background:var(--paper); border:1px solid var(--line); border-radius:14px; overflow:hidden;}
   .prow{border-bottom:1px solid var(--line);}
   .prow:last-child{border-bottom:none;}
-  .prow-head{display:flex; align-items:center; gap:8px; padding:12px 14px; cursor:pointer;}
+  .prow-head{display:flex; align-items:center; gap:8px; padding:12px 14px;}
   .prow-head .rank{width:18px; font-family:'Space Mono',monospace; font-size:11px; color:#9a9179; font-weight:700; flex:none;}
   .prow-head .pname{flex:1; font-weight:700; font-size:14px;}
   .prow-head .ptotal{font-family:'Space Mono',monospace; font-weight:700; font-size:16px;}
   .prow-head .ptotal.pos{color:#1B6B3A;}
   .prow-head .ptotal.neg{color:var(--flag);}
   .prow-head .ptotal.zero{color:#7a7259;}
-  .prow-head .chev{font-size:11px; color:#9a9179; flex:none; transition:transform .15s ease;}
-  .prow.open .prow-head .chev{transform:rotate(180deg);}
-  .prow-detail{display:none; padding:0 14px 12px 40px;}
-  .prow.open .prow-detail{display:block;}
+  .prow-detail{padding:0 14px 12px 40px;}
   .vs-chip{
     display:inline-flex; align-items:center; gap:5px; background:var(--sand); border-radius:8px; padding:4px 9px; margin:2px 4px 2px 0; font-size:12px;
   }
@@ -331,7 +332,10 @@
           <button class="par-btn" data-par="4">พาร์ 4</button>
           <button class="par-btn" data-par="5">พาร์ 5</button>
         </div>
-        <div class="turbo-btn" id="turboBtn">⚡ เทอร์โบหลุมนี้ (คูณ 2 พ้อย)</div>
+        <div class="turbo-row">
+          <div class="turbo-btn" id="turboAllBtn">⚡ All in Turbo</div>
+          <div class="turbo-btn solo" id="turboSoloBtn">🥊 Turbo ตัว</div>
+        </div>
         <div id="farNearBox" style="display:none;">
           <label class="field-label">ใครใกล้ธงสุด?</label>
           <div class="farnear-picker" id="farNearPicker"></div>
@@ -378,7 +382,7 @@
     moogudPts: { bogey:1, par:2, birdie:3, eagle:4, albatross:5, hio:10 },
     games: { moogud:true, olympic:true, farnear:false, team:false },
     currentHole: 1,
-    holes: {} // holeNum -> {par, turbo, strokes:{pid:n}, farNearWinner, olyPts:{pid:n}}
+    holes: {} // holeNum -> {par, turboAll, turboSolo, strokes:{pid:n}, farNearWinner, olyPts:{pid:n}}
   };
   const TOTAL_HOLES = 18;
   const DEFAULT_NAMES = ['เอ','บี','ซี','ดี','อี','เอฟ','จี','เอช'];
@@ -404,7 +408,7 @@
 
   function ensureHole(n){
     if(!state.holes[n]){
-      state.holes[n] = { par:4, turbo:false, strokes:{}, farNearWinner:null, olyPts:{} };
+      state.holes[n] = { par:4, turboAll:false, turboSolo:false, strokes:{}, farNearWinner:null, olyPts:{} };
       state.players.forEach(p=> { state.holes[n].strokes[p.id] = 4; state.holes[n].olyPts[p.id] = 0; });
     }
     return state.holes[n];
@@ -534,7 +538,10 @@
     if(diff===-2) return {txt:'อีเกิ้ล', cls:'eagle'};
     if(diff===-1) return {txt:'เบอร์ดี้', cls:'birdie'};
     if(diff===0) return {txt:'พาร์', cls:'par'};
-    return {txt: diff===1?'โบกี้':'โบกี้+', cls:'bogey'};
+    if(diff===1) return {txt:'โบกี้', cls:'bogey'};
+    if(diff===2) return {txt:'ดับเบิ้ลโบกี้', cls:'bogey'};
+    if(diff===3) return {txt:'ทริปเปิ้ลโบกี้', cls:'bogey'};
+    return {txt:`+${diff}`, cls:'bogey'};
   }
 
   function renderPlay(){
@@ -546,9 +553,20 @@
       b.onclick = ()=>{ hole.par = parseInt(b.dataset.par); renderPlay(); };
     });
 
-    const turboBtn = document.getElementById('turboBtn');
-    turboBtn.classList.toggle('active', hole.turbo);
-    turboBtn.onclick = ()=>{ hole.turbo = !hole.turbo; renderPlay(); };
+    const turboAllBtn = document.getElementById('turboAllBtn');
+    const turboSoloBtn = document.getElementById('turboSoloBtn');
+    turboAllBtn.classList.toggle('active', hole.turboAll);
+    turboSoloBtn.classList.toggle('active', hole.turboSolo);
+    turboAllBtn.onclick = ()=>{
+      hole.turboAll = !hole.turboAll;
+      if(hole.turboAll) hole.turboSolo = false;
+      renderPlay();
+    };
+    turboSoloBtn.onclick = ()=>{
+      hole.turboSolo = !hole.turboSolo;
+      if(hole.turboSolo) hole.turboAll = false;
+      renderPlay();
+    };
 
     const farNearBox = document.getElementById('farNearBox');
     farNearBox.style.display = (state.games.farnear && hole.par===3) ? 'block' : 'none';
@@ -622,27 +640,23 @@
     return 'bogey';
   }
 
-  // Determines the หมากัด winner of a hole (lowest strokes; tie = no winner) and their score type.
-  // Returns {winnerId, type} or null if no single winner.
-  function moogudWinnerOf(hole){
-    let minS = Infinity, winners = [];
-    state.players.forEach(p=>{
-      const s = hole.strokes[p.id];
-      if(s < minS){ minS = s; winners = [p.id]; }
-      else if(s === minS){ winners.push(p.id); }
-    });
-    if(winners.length!==1) return null;
-    return { winnerId: winners[0], type: typeOf(hole.strokes[winners[0]], hole.par) };
+  // Pairwise หมากัด winner for a specific pair: whoever has fewer strokes wins that pair.
+  // Returns {winnerId, loserId, type} or null if tied (no exchange for this pair).
+  function pairMoogudWinner(hole, pi, pj){
+    const si = hole.strokes[pi.id], sj = hole.strokes[pj.id];
+    if(si < sj) return { winnerId: pi.id, loserId: pj.id, type: typeOf(si, hole.par) };
+    if(sj < si) return { winnerId: pj.id, loserId: pi.id, type: typeOf(sj, hole.par) };
+    return null;
   }
 
-  // โอลิมปิกคูณตามประเภทที่ชนะหมากัดหลุมนั้น: เบอร์ดี้×2, อีเกิ้ล×3, อัลบาทรอส×4, โฮลอินวัน×5, อื่นๆ/เสมอ×1
+  // โอลิมปิกคูณตามประเภทที่ชนะหมากัดของคู่นั้นๆ: เบอร์ดี้×2, อีเกิ้ล×3, อัลบาทรอส×4, โฮลอินวัน×5, อื่นๆ/เสมอ×1
   const OLY_LINK_MULT = { birdie:2, eagle:3, alb:4, hio:5, par:1, bogey:1 };
 
   // โอลิมปิกที่ pi ได้จาก pj หลุมนี้ (บวก = pi ได้จาก pj, ลบ = pi เสียให้ pj), รวมเทอร์โบแล้ว
-  // ถ้าคู่นี้มีผู้ชนะหมากัดอยู่ด้วย: (พ้อยดิบของผู้ชนะ × ตัวคูณ) − พ้อยดิบของอีกฝ่าย
-  // ถ้าไม่มีผู้ชนะหมากัดเกี่ยวข้อง (แพ้ทั้งคู่ หรือหลุมเสมอ): เทียบพ้อยดิบตรงๆ ไม่มีตัวคูณ
+  // ผู้ชนะคู่นี้ (ตีน้อยกว่า): (พ้อยดิบของผู้ชนะ × ตัวคูณตามประเภทสกอร์ที่ชนะ) − พ้อยดิบของอีกฝ่าย
+  // เสมอกันในคู่นี้: เทียบพ้อยดิบตรงๆ ไม่มีตัวคูณ
   function olyPairDiff(hole, pi, pj, turboMult){
-    const w = moogudWinnerOf(hole);
+    const w = pairMoogudWinner(hole, pi, pj);
     const vi = hole.olyPts[pi.id] || 0, vj = hole.olyPts[pj.id] || 0;
     let raw;
     if(w && w.winnerId===pi.id){
@@ -655,6 +669,10 @@
     return raw * turboMult;
   }
 
+  // ตัวคูณเทอร์โบ: All in Turbo คูณทั้งหมากัด+โอลิมปิก / Turbo ตัว คูณแค่หมากัด
+  function moogudTurboMult(hole){ return (hole.turboAll || hole.turboSolo) ? 2 : 1; }
+  function olyTurboMult(hole){ return hole.turboAll ? 2 : 1; }
+
   function computeStandings(){
     const pts = {}; // pid -> {moogud, olympic, farnear, team, total}
     state.players.forEach(p=> pts[p.id] = {moogud:0, olympic:0, farnear:0, team:0});
@@ -662,39 +680,41 @@
     for(let n=1;n<=TOTAL_HOLES;n++){
       const hole = state.holes[n];
       if(!hole) continue;
-      const turboMult = hole.turbo ? 2 : 1;
+      const mgMult = moogudTurboMult(hole);
+      const olMult = olyTurboMult(hole);
 
-      // หมากัด: ต่ำสุดชนะหลุม พ้อยขึ้นกับประเภทสกอร์ที่ชนะ (ปรับค่าได้ในหน้าตั้งค่า), เทอร์โบคูณ 2
-      // ผู้ชนะได้พ้อยเต็มจำนวนตามตาราง จากผู้แพ้ทุกคน (ไม่หารแบ่ง — แต่ละคนจ่ายเต็ม)
+      // หมากัด: เทียบคู่ต่อคู่ทุกคู่ — ใครตีน้อยกว่าในคู่นั้นชนะ ได้พ้อยตามประเภทสกอร์ของตัวเอง (ตามตารางหน้าตั้งค่า) จากอีกฝ่าย
+      // All in Turbo หรือ Turbo ตัว คูณ 2 ทั้งคู่ (เลือกได้ทีละอย่าง)
       if(state.games.moogud && state.players.length>1){
-        const w = moogudWinnerOf(hole);
-        if(w){
-          const key = w.type==='hio' ? 'hio' : w.type==='alb' ? 'albatross' : w.type;
-          const amount = (state.moogudPts[key] || 0) * turboMult;
-          state.players.forEach(p=>{
-            if(p.id===w.winnerId) return;
+        for(let i=0;i<state.players.length;i++){
+          for(let j=i+1;j<state.players.length;j++){
+            const pi = state.players[i], pj = state.players[j];
+            const w = pairMoogudWinner(hole, pi, pj);
+            if(!w) continue; // ตีเท่ากันในคู่นี้ = ไม่มีพ้อยแลกกัน
+            const key = w.type==='hio' ? 'hio' : w.type==='alb' ? 'albatross' : w.type;
+            const amount = (state.moogudPts[key] || 0) * mgMult;
             pts[w.winnerId].moogud += amount;
-            pts[p.id].moogud -= amount;
-          });
+            pts[w.loserId].moogud -= amount;
+          }
         }
-        // เสมอกันที่ต่ำสุด = ไม่มีผู้ชนะหลุมนี้ (ไม่มีพ้อยแจก ไม่สะสม)
       }
 
-      // โอลิมปิก: เทียบคู่ต่อคู่ทุกคู่ — คู่ที่มีผู้ชนะหมากัดใช้ตัวคูณ, คู่ที่เหลือเทียบพ้อยดิบตรงๆ
+      // โอลิมปิก: เทียบคู่ต่อคู่ทุกคู่ — ใครชนะหมากัดในคู่นั้นใช้ตัวคูณ, เสมอกันเทียบพ้อยดิบตรงๆ
+      // เฉพาะ All in Turbo เท่านั้นที่คูณโอลิมปิก (Turbo ตัวไม่คูณ)
       if(state.games.olympic){
         for(let i=0;i<state.players.length;i++){
           for(let j=i+1;j<state.players.length;j++){
             const pi = state.players[i], pj = state.players[j];
-            const diff = olyPairDiff(hole, pi, pj, turboMult);
+            const diff = olyPairDiff(hole, pi, pj, olMult);
             if(diff>0){ pts[pi.id].olympic += diff; pts[pj.id].olympic -= diff; }
             else if(diff<0){ pts[pj.id].olympic += -diff; pts[pi.id].olympic -= -diff; }
           }
         }
       }
 
-      // Far-Near
+      // Far-Near (อิง All in Turbo เหมือนโอลิมปิก)
       if(state.games.farnear && hole.par===3 && hole.farNearWinner){
-        const bonus = 1*turboMult;
+        const bonus = 1*olMult;
         pts[hole.farNearWinner].farnear += bonus;
         state.players.forEach(q=>{ if(q.id!==hole.farNearWinner) pts[q.id].farnear -= bonus/(state.players.length-1); });
       }
@@ -706,7 +726,7 @@
         if(teamA.length && teamB.length){
           const bestA = Math.min(...teamA.map(p=> hole.strokes[p.id]));
           const bestB = Math.min(...teamB.map(p=> hole.strokes[p.id]));
-          const pt = 1*turboMult;
+          const pt = 1*olMult;
           if(bestA<bestB){ teamA.forEach(p=>pts[p.id].team += pt/teamA.length); teamB.forEach(p=>pts[p.id].team -= pt/teamB.length); }
           else if(bestB<bestA){ teamB.forEach(p=>pts[p.id].team += pt/teamB.length); teamA.forEach(p=>pts[p.id].team -= pt/teamA.length); }
         }
@@ -721,10 +741,6 @@
     return pts;
   }
 
-  // Pairwise net matrix (หมากัด + โอลิมปิก) across the whole round.
-  // matrix[i][j] = net points player i has won from player j (anti-symmetric).
-  // หมากัด is winner-take-all per hole, so it's split evenly across the other players
-  // to express it pairwise; summed with โอลิมปิก's already-pairwise diffs.
   // Pairwise net matrix (หมากัด + โอลิมปิก) for ONE hole only.
   function computeMatrix(holeNum){
     const n = state.players.length;
@@ -733,20 +749,21 @@
 
     const hole = state.holes[holeNum];
     if(!hole) return matrix;
-    const turboMult = hole.turbo ? 2 : 1;
+    const mgMult = moogudTurboMult(hole);
+    const olMult = olyTurboMult(hole);
 
     if(state.games.moogud && n>1){
-      const w = moogudWinnerOf(hole);
-      if(w){
-        const key = w.type==='hio' ? 'hio' : w.type==='alb' ? 'albatross' : w.type;
-        const amount = (state.moogudPts[key] || 0) * turboMult;
-        const wi = idxOf[w.winnerId];
-        state.players.forEach(p=>{
-          if(p.id===w.winnerId) return;
-          const qi = idxOf[p.id];
-          matrix[wi][qi] += amount;
-          matrix[qi][wi] -= amount;
-        });
+      for(let i=0;i<state.players.length;i++){
+        for(let j=i+1;j<state.players.length;j++){
+          const pi = state.players[i], pj = state.players[j];
+          const w = pairMoogudWinner(hole, pi, pj);
+          if(!w) continue;
+          const key = w.type==='hio' ? 'hio' : w.type==='alb' ? 'albatross' : w.type;
+          const amount = (state.moogudPts[key] || 0) * mgMult;
+          const wi = idxOf[w.winnerId], li = idxOf[w.loserId];
+          matrix[wi][li] += amount;
+          matrix[li][wi] -= amount;
+        }
       }
     }
 
@@ -754,7 +771,7 @@
       for(let i=0;i<state.players.length;i++){
         for(let j=i+1;j<state.players.length;j++){
           const pi = state.players[i], pj = state.players[j];
-          const diff = olyPairDiff(hole, pi, pj, turboMult);
+          const diff = olyPairDiff(hole, pi, pj, olMult);
           matrix[i][j] += diff;
           matrix[j][i] -= diff;
         }
@@ -773,8 +790,6 @@
     return v>0 ? 'pos' : 'neg';
   }
 
-  const matrixOpenIds = new Set(); // which player rows are expanded — persists across re-renders
-
   function renderMatrixSummary(){
     const box = document.getElementById('matrixSummaryList');
     const players = state.players;
@@ -790,13 +805,11 @@
     let html = '';
     order.forEach((i, rank)=>{
       const p = players[i];
-      const isOpen = matrixOpenIds.has(p.id);
-      html += `<div class="prow ${isOpen?'open':''}" data-pid="${p.id}">`;
+      html += `<div class="prow" data-pid="${p.id}">`;
       html += `<div class="prow-head">
           <div class="rank">${rank+1}</div>
           <div class="pname">${p.name}</div>
           <div class="ptotal ${cellClass(rowTotals[i])}">${fmtCell(rowTotals[i])}</div>
-          <div class="chev">▾</div>
         </div>`;
       html += `<div class="prow-detail">`;
       players.forEach((q,j)=>{
@@ -808,15 +821,6 @@
     });
 
     box.innerHTML = html;
-
-    box.querySelectorAll('.prow-head').forEach(head=>{
-      head.addEventListener('click', ()=>{
-        const row = head.parentElement;
-        const pid = row.dataset.pid;
-        if(matrixOpenIds.has(pid)){ matrixOpenIds.delete(pid); row.classList.remove('open'); }
-        else { matrixOpenIds.add(pid); row.classList.add('open'); }
-      });
-    });
   }
 
   function renderSummary(){
